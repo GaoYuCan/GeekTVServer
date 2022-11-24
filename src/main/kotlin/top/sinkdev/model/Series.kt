@@ -1,4 +1,3 @@
 package top.sinkdev.model
 
-class Series {
-}
+data class Series(val title: String, val key: String)

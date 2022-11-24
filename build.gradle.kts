@@ -12,7 +12,6 @@ group = "top.sinkdev"
 version = "0.0.1"
 application {
     mainClass.set("top.sinkdev.ApplicationKt")
-
     val isDevelopment: Boolean = project.ext.has("development")
     applicationDefaultJvmArgs = listOf("-Dio.ktor.development=$isDevelopment")
 }
@@ -21,7 +20,16 @@ repositories {
     mavenCentral()
 }
 
+
+
 dependencies {
+    // guava
+    implementation("com.google.guava:guava:31.1-jre")
+    // jsoup
+    implementation("org.jsoup:jsoup:1.15.3")
+    // ktor
+    implementation("io.ktor:ktor-client-core:$ktor_version")
+    implementation("io.ktor:ktor-client-cio:$ktor_version")
     implementation("io.ktor:ktor-server-core-jvm:$ktor_version")
     implementation("io.ktor:ktor-server-content-negotiation-jvm:$ktor_version")
     implementation("io.ktor:ktor-serialization-gson-jvm:$ktor_version")
