@@ -1,15 +1,12 @@
 package top.sinkdev.crawler
 
-import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
-import com.google.gson.reflect.TypeToken
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.http.*
 import io.ktor.server.http.*
 import io.ktor.util.*
+import okhttp3.FormBody
+import okhttp3.Request
 import org.jsoup.Jsoup
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -29,7 +26,7 @@ object SimpleCrawler {
 
     // 正则表达式
     private val regex_1 = "var player_aaaa=(\\{.+})".toRegex()
-    private val regex_2 = "var config = (\\{.+?})".toRegex()
+    private val regex_2 = "var config = (\\{.+?), +}".toRegex()
 
     // Logger
     private val logger: Logger = LoggerFactory.getLogger(SimpleCrawler::class.java)
@@ -46,12 +43,16 @@ object SimpleCrawler {
 
 
     suspend fun searchMovies(keyword: String): List<Movie> {
-        val response = globalHttpClient.get(searchURL.format(keyword))
-        if (response.status != HttpStatusCode.OK) {
-            logger.error("searchMovies error: statusCode = ${response.status}")
+        val request = Request.Builder()
+            .url(searchURL.format(keyword))
+            .get()
+            .build()
+        val response = globalHttpClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            logger.error("searchMovies error: statusCode = ${response.code}")
             return emptyList()
         }
-        val htmlStr = response.body<String>()
+        val htmlStr = response.body!!.string()
         val document = Jsoup.parse(htmlStr)
         // select 搜索返回列表
         val items = document.select("div.hl-item-div")
@@ -72,12 +73,16 @@ object SimpleCrawler {
     }
 
     suspend fun parseSeries(key: String): List<Sources> {
-        val response = globalHttpClient.get(domainURL + key.decodeBase64String())
-        if (response.status != HttpStatusCode.OK) {
-            logger.error("parseSeries error: statusCode = ${response.status}")
+        val request = Request.Builder()
+            .url(domainURL + key.decodeBase64String())
+            .get()
+            .build()
+        val response = globalHttpClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            logger.error("parseSeries error: statusCode = ${response.code}")
             return emptyList()
         }
-        val htmlStr = response.body<String>()
+        val htmlStr = response.body!!.string()
         val document = Jsoup.parse(htmlStr)
         // select 源数量
         val sourceNames = document.select("div.hl-plays-from>a.hl-tabs-btn")
@@ -102,13 +107,17 @@ object SimpleCrawler {
     }
 
     suspend fun parseM3U8URL(key: String): String? {
+        var request = Request.Builder()
+            .url(domainURL + key.decodeBase64String())
+            .get()
+            .build()
         // 请求视频播放页以获得 playerAAA
-        var response = globalHttpClient.get(domainURL + key.decodeBase64String())
-        if (response.status != HttpStatusCode.OK) {
-            logger.error("parseM3U8URL error: statusCode = ${response.status}")
+        var response = globalHttpClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            logger.error("parseM3U8URL error: statusCode = ${response.code}")
             return null
         }
-        var responseText = response.body<String>()
+        var responseText = response.body!!.string()
         // 查找 playerAAA
         var matchResult = regex_1.find(responseText)
         if (matchResult == null) {
@@ -118,14 +127,19 @@ object SimpleCrawler {
         // 解析 JSON
         val playerAAA = JsonParser.parseString(matchResult.groupValues[1]) as JsonObject
         // 根据 JSON 发起 GET
-        response = globalHttpClient.get(getKeyURL.format(playerAAA["url"].asString,
-                playerAAA["tm"].asInt.toString(), playerAAA["key"].asString, playerAAA["link_next"].asString, ""))
-        if (response.status != HttpStatusCode.OK) {
-            logger.error("parseM3U8URL getKeyURL error: statusCode = ${response.status}")
+        request = Request.Builder()
+            .url(getKeyURL.format(playerAAA["url"].asString, playerAAA["tm"].asInt.toString(),
+                    playerAAA["key"].asString, playerAAA["link_next"].asString, ""))
+            .get()
+            .build()
+        response = globalHttpClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            logger.error("parseM3U8URL getKeyURL error: statusCode = ${response.code}")
             return null
         }
         // 全变到一行去，为正则匹配作准备
-        responseText = response.body<String>().replace("\r\n", "").replace("\n", "")
+        responseText = response.body!!.string().replace("\r\n", "").replace("\n", "")
+        logger.info(responseText)
         // 查找 config
         matchResult = regex_2.find(responseText)
         if (matchResult == null) {
@@ -133,20 +147,23 @@ object SimpleCrawler {
             return null
         }
 
-        val config = JsonParser.parseString(matchResult.groupValues[1]) as JsonObject
-        // 获取 M3U8 URL
-        response = globalHttpClient.post(getM3U8URL) {
-            formData {
-                parameter("url", config["url"].asString)
-                parameter("time", config["time"].asInt)
-                parameter("key", config["key"].asString)
-            }
-        }
-        if (response.status != HttpStatusCode.OK) {
-            logger.error("parseM3U8URL getM3U8URL error: statusCode = ${response.status}")
+        val config = JsonParser.parseString(matchResult.groupValues[1] + "}") as JsonObject
+        // 获取 m3u8 URL
+        val formBody = FormBody.Builder()
+            .add("url", config["url"].asString)
+            .add("time", config["time"].asString)
+            .add("key", config["key"].asString)
+            .build()
+        request = Request.Builder()
+            .url(getM3U8URL)
+            .post(formBody)
+            .build()
+        response = globalHttpClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            logger.error("parseM3U8URL getM3U8URL error: statusCode = ${response.code}")
             return null
         }
-        responseText = response.body<String>()
+        responseText = response.body!!.string()
         // 解析 JSON 得到M3U8 URL
         val respJSON = JsonParser.parseString(responseText) as JsonObject
         if (respJSON["success"].asInt != 1) {

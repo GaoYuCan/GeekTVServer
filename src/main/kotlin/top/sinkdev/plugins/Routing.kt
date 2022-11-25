@@ -1,10 +1,6 @@
 package top.sinkdev.plugins
 
 import ch.qos.logback.core.encoder.ByteArrayUtil
-import io.ktor.client.*
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.server.routing.*
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -16,8 +12,7 @@ import io.ktor.util.logging.*
 import io.ktor.util.reflect.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.*
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
+import okhttp3.Request
 import top.sinkdev.*
 import top.sinkdev.crawler.SimpleCrawler
 import top.sinkdev.crawler.TSFileGrabber
@@ -86,7 +81,7 @@ fun Application.configureRouting() {
                 var i = 0
                 while (!proxyTS.isFile && i++ < 3) {
                     // 缓存文件
-                    TSFileGrabber.downloadAndHandleTSFile(key, url)
+                    withContext(Dispatchers.IO) { TSFileGrabber.downloadAndHandleTSFile(key, url) }
                 }
                 if (!proxyTS.isFile) {
                     globalLogger.error("proxyTS File, ${proxyTS.absolutePath} Not Found")
@@ -106,8 +101,10 @@ private fun generateProxyM3U8File(proxyM3U8: File, parseURL: String, key: String
     GlobalScope.launch(Dispatchers.IO) {
         try {// 创建代理 M3U8 文件
             val m3u8FileOutputStream = proxyM3U8.outputStream().bufferedWriter()
-            val readChannel = globalHttpClient.get(parseURL).bodyAsChannel()
-            var line = readChannel.readUTF8Line()
+            val request = Request.Builder().url(parseURL).get().build()
+            val response = globalHttpClient.newCall(request).execute()
+            val br = response.body!!.byteStream().bufferedReader()
+            var line = br.readLine()
             while (line != null) {
                 if (line.startsWith("#")) {
                     // M3U8 控制信息不变
@@ -122,11 +119,14 @@ private fun generateProxyM3U8File(proxyM3U8: File, parseURL: String, key: String
                     if (line.contains("ts.php")) {
                         // 缓存数据
                         val url = line
-                        GlobalScope.launch { TSFileGrabber.downloadAndHandleTSFile(key, url) }
+                        globalExecutors.submit {
+                            TSFileGrabber.downloadAndHandleTSFile(key, url)
+                        }
                     }
                 }
-                line = readChannel.readUTF8Line()
+                line = br.readLine()
             }
+            br.close()
             m3u8FileOutputStream.close()
         } catch (e: Exception) {
             e.printStackTrace()

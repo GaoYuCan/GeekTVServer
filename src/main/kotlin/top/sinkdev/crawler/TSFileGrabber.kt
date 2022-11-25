@@ -1,11 +1,9 @@
 package top.sinkdev.crawler
 
 import ch.qos.logback.core.encoder.ByteArrayUtil
-import io.ktor.client.call.*
-import io.ktor.client.request.*
-import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.Request
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import top.sinkdev.globalHttpClient
@@ -22,12 +20,13 @@ object TSFileGrabber {
 
     private const val MAGIC = 0x47.toByte()
 
-    suspend fun downloadAndHandleTSFile(key: String, url: String) = withContext(Dispatchers.IO) {
+    fun downloadAndHandleTSFile(key: String, url: String) {
         try {
-            val response = globalHttpClient.get(url)
-            if (response.status != HttpStatusCode.OK) {
-                logger.error("downloadAndHandleTSFile error: ${response.status}, url = ${url}")
-                return@withContext
+            val request = Request.Builder().url(url).get().build()
+            val response = globalHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) {
+                logger.error("downloadAndHandleTSFile error: ${response.code}, url = ${url}")
+                return
             }
             val urlHash = ByteArrayUtil.toHexString(MessageDigest.getInstance("MD5").digest(url.toByteArray()))
             // 创建父文件夹
@@ -37,19 +36,17 @@ object TSFileGrabber {
             }
             val tsFileOutputStream = File(parentFile, "${urlHash}.ts").outputStream()
             // 开始校验文件头
-            val allBytes: ByteArray = response.body()
-
+            val allBytes: ByteArray = response.body!!.bytes()
             var offset = 0
             if (allBytes[0] != MAGIC) {  // 是否是标准 TS
                 var i = 0
                 while (i < allBytes.size - LEN_188) {
-                    if (isMPEG2TS(allBytes, i)) {
+                    if (isMPEG2TS(allBytes, i, LEN_188) || isMPEG2TS(allBytes, i, LEN_204)) {
                         offset = i
                         break
                     }
                     i++
                 }
-
             }
             // 写出文件
             allBytes.inputStream(offset, allBytes.size - offset).copyTo(tsFileOutputStream)
@@ -59,25 +56,15 @@ object TSFileGrabber {
         }
     }
 
-    private fun isMPEG2TS(bytes: ByteArray, offset: Int): Boolean {
+    private fun isMPEG2TS(bytes: ByteArray, offset: Int, len: Int): Boolean {
         if (bytes[offset] != MAGIC) {
             return false
         }
         val dealt = bytes.size - offset
-        var count = dealt / LEN_188
+        val count = dealt / len
         var i = 0
         while (i < count) {
-            if (bytes[offset + i++ * LEN_188] != MAGIC) {
-                return false
-            }
-        }
-        if (count >= 2) {
-            return true
-        }
-        count = dealt / LEN_204
-        i = 0
-        while (i < count) {
-            if (bytes[offset + i++ * LEN_204] != MAGIC) {
+            if (bytes[offset + len * (i++)] != MAGIC) {
                 return false
             }
         }
