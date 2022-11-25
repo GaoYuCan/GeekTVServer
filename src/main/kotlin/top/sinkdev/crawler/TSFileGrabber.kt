@@ -14,11 +14,14 @@ import java.security.MessageDigest
 import java.util.Arrays
 
 object TSFileGrabber {
-    // ts 文件头
-    private val TS_HEADER = ByteArrayUtil.hexStringToByteArray("474011100042f025")
+
     // Logger
     private val logger: Logger = LoggerFactory.getLogger(TSFileGrabber::class.java)
 
+    private const val LEN_188 = 188
+    private const val LEN_204 = 204
+
+    private const val MAGIC = 0x47.toByte()
 
     suspend fun downloadAndHandleTSFile(key: String, url: String) = withContext(Dispatchers.IO) {
         try {
@@ -38,10 +41,10 @@ object TSFileGrabber {
             val allBytes: ByteArray = response.body()
 
             var offset = 0
-            if (!Arrays.equals(allBytes, 0, TS_HEADER.size, TS_HEADER, 0, TS_HEADER.size)) {  // 是否是标准 TS
+            if (allBytes[0] != MAGIC) {  // 是否是标准 TS
                 var i = 0
-                while (i < allBytes.size - TS_HEADER.size) {
-                    if (Arrays.equals(allBytes, i, i + TS_HEADER.size, TS_HEADER, 0, TS_HEADER.size)) {
+                while (i < allBytes.size - LEN_188) {
+                    if (isMPEG2_TS(allBytes, i)) {
                         offset = i
                         break
                     }
@@ -57,4 +60,28 @@ object TSFileGrabber {
         }
     }
 
+    private fun isMPEG2_TS(bytes: ByteArray, offset: Int): Boolean {
+        if (bytes[offset] != MAGIC) {
+            return false
+        }
+        val dealt = bytes.size - offset
+        var count = dealt / LEN_188
+        var i = 0
+        while (i < count) {
+            if (bytes[offset + i++ * LEN_188] != MAGIC) {
+                return false
+            }
+        }
+        if (count >= 2) {
+            return true
+        }
+        count = dealt / LEN_204
+        i = 0
+        while (i < count) {
+            if (bytes[offset + i++ * LEN_204] != MAGIC) {
+                return false
+            }
+        }
+        return count > 0
+    }
 }
