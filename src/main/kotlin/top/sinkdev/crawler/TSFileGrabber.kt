@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory
 import top.sinkdev.globalHttpClient
 import java.io.File
 import java.security.MessageDigest
-import java.util.Arrays
 
 object TSFileGrabber {
 
@@ -44,7 +43,7 @@ object TSFileGrabber {
             if (allBytes[0] != MAGIC) {  // 是否是标准 TS
                 var i = 0
                 while (i < allBytes.size - LEN_188) {
-                    if (isMPEG2_TS(allBytes, i)) {
+                    if (isMPEG2TS(allBytes, i)) {
                         offset = i
                         break
                     }
@@ -60,7 +59,7 @@ object TSFileGrabber {
         }
     }
 
-    private fun isMPEG2_TS(bytes: ByteArray, offset: Int): Boolean {
+    private fun isMPEG2TS(bytes: ByteArray, offset: Int): Boolean {
         if (bytes[offset] != MAGIC) {
             return false
         }

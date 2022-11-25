@@ -33,7 +33,7 @@ fun Application.configureRouting() {
             call.respondText("Geek TV Server!")
         }
 
-        get("search") {
+        get("/search") {
             val keyword = call.request.queryParameters["keyword"]!!
             // 搜索电影
             val movie = SimpleCrawler.searchMovies(keyword)

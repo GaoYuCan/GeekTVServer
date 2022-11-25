@@ -14,10 +14,10 @@ import org.jsoup.Jsoup
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import top.sinkdev.encodeURLBase64
-import top.sinkdev.globalGson
 import top.sinkdev.globalHttpClient
 import top.sinkdev.model.Movie
 import top.sinkdev.model.Series
+import top.sinkdev.model.Sources
 import java.util.Properties
 
 
@@ -71,7 +71,7 @@ object SimpleCrawler {
         return moviesList
     }
 
-    suspend fun parseSeries(key: String): List<Series> {
+    suspend fun parseSeries(key: String): List<Sources> {
         val response = globalHttpClient.get(domainURL + key.decodeBase64String())
         if (response.status != HttpStatusCode.OK) {
             logger.error("parseSeries error: statusCode = ${response.status}")
@@ -79,16 +79,26 @@ object SimpleCrawler {
         }
         val htmlStr = response.body<String>()
         val document = Jsoup.parse(htmlStr)
-        // select 选集列表
-        val seriesItems = document.select("ul.hl-plays-list>li.hl-col-xs-4")
-        val seriesList = mutableListOf<Series>()
-        // 遍历选集列表获取选集名，key
-        for (seriesItem in seriesItems) {
-            val tag = seriesItem.selectFirst("a")!!
-            val title = tag.textNodes().fold("") { p, textNode -> p + textNode.text().trim() }
-            seriesList += Series(title, tag.attr("href").encodeURLBase64())
+        // select 源数量
+        val sourceNames = document.select("div.hl-plays-from>a.hl-tabs-btn")
+        val sourcePlayLists = document.select("div.hl-play-source>div.hl-tabs-box")
+        val sourcesList = mutableListOf<Sources>()
+        var i = 0
+        while (i < Math.min(sourceNames.size, sourcePlayLists.size)) {
+            val seriesItems = sourcePlayLists[i].select("ul.hl-plays-list>li.hl-col-xs-4")
+            // select 选集列表
+            val playList = mutableListOf<Series>()
+            // 遍历选集列表获取选集名，key
+            for (seriesItem in seriesItems) {
+                val tag = seriesItem.selectFirst("a")!!
+                val title = tag.textNodes().fold("") { p, textNode -> p + textNode.text().trim() }
+                playList += Series(title, tag.attr("href").encodeURLBase64())
+            }
+            sourcesList += Sources(sourceNames[i].attr("alt"), playList)
+            i++
         }
-        return seriesList
+
+        return sourcesList
     }
 
     suspend fun parseM3U8URL(key: String): String? {
@@ -123,7 +133,7 @@ object SimpleCrawler {
             return null
         }
 
-        val config =  JsonParser.parseString(matchResult.groupValues[1]) as JsonObject
+        val config = JsonParser.parseString(matchResult.groupValues[1]) as JsonObject
         // 获取 M3U8 URL
         response = globalHttpClient.post(getM3U8URL) {
             formData {
@@ -138,7 +148,7 @@ object SimpleCrawler {
         }
         responseText = response.body<String>()
         // 解析 JSON 得到M3U8 URL
-        val respJSON =  JsonParser.parseString(responseText) as JsonObject
+        val respJSON = JsonParser.parseString(responseText) as JsonObject
         if (respJSON["success"].asInt != 1) {
             logger.error("parseM3U8URL error: ${respJSON}")
             return null
