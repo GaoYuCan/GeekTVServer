@@ -20,6 +20,7 @@ import top.sinkdev.model.createFailureResponse
 import top.sinkdev.model.createSuccessResponse
 import java.io.File
 import java.security.MessageDigest
+import kotlin.concurrent.thread
 
 
 fun Application.configureRouting() {
@@ -96,9 +97,8 @@ fun Application.configureRouting() {
     }
 }
 
-@OptIn(DelicateCoroutinesApi::class)
 private fun generateProxyM3U8File(proxyM3U8: File, parseURL: String, key: String) {
-    GlobalScope.launch(Dispatchers.IO) {
+    thread {
         try {// 创建代理 M3U8 文件
             val m3u8FileOutputStream = proxyM3U8.outputStream().bufferedWriter()
             val request = Request.Builder().url(parseURL).get().build()
