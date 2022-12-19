@@ -105,6 +105,7 @@ private fun generateProxyM3U8File(proxyM3U8: File, parseURL: String, key: String
             val response = globalHttpClient.newCall(request).execute()
             val br = response.body!!.byteStream().bufferedReader()
             var line = br.readLine()
+
             while (line != null) {
                 if (line.startsWith("#")) {
                     // M3U8 控制信息不变
